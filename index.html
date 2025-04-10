@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Family Tree</title>
+        <link rel="stylesheet" type="text/css" href="style.css">   
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
+        <script type="module" src="index.js"></script>
+        <script type="module" src="scripts/draw-tree-utils.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/d3@7.0.0/dist/d3.min.js"></script>
+    </head>
+
+    <body>
+        <div id="header">
+            <div>
+                <h1>Family Tree Builder</h1>  
+                <div id="subtitle-container">
+                    <button id="subtitle-btn" class="hidden">
+                        <img src="assets/close.png" />
+                    </button>
+                    <p id="subtitle-text">Visualize Your Family History</p>
+                </div>
+            </div>
+            
+            <div id="header-btns-container"> 
+                <div id="add-btn-box" class="btn-with-tooltip">
+                    <button id="add-btn" class="circle-btn">
+                        <img class="btn-img" src="assets/plus.png" />
+                    </button>
+                </div>
+
+                <div id="edit-btn-box" class="btn-with-tooltip"> 
+                    <button id="edit-btn" class="circle-btn">
+                        <img class="btn-img" src="assets/edit.png" />
+                    </button>
+                </div>
+
+                <div id="delete-btn-box" class="btn-with-tooltip">
+                    <button id="delete-btn" class="circle-btn">
+                        <img class="btn-img" src="assets/trash.png" />
+                    </button> 
+                </div>
+
+                <div id="refresh-btn-box" class="btn-with-tooltip">
+                    <button id="refresh-btn" class="circle-btn">
+                        <img class="btn-img" src="assets/reload.png" />
+                    </button> 
+                </div>
+            </div> 
+        </div>
+
+        <dialog id="member-form-dialog">
+            <div id="form-header" class="dialog-header"></div>
+            <div id="form-body">
+                <div id="form-img-selector">
+                    <img id="form-selected-img" />
+                    <div id="form-default-img-options"></div> 
+                    <p id="file-error-msg" class="hidden">
+                        * only images files are accepted
+                    </p>
+                </div>
+
+                <form id="member-form">
+                    <label for="name" class="form-field-label">Member Name</label>
+                    <input type="text" id="name" name="name" required  maxlength="20"
+                        placeholder="Enter Name"
+                        autocomplete="off"
+                        oninvalid="this.setCustomValidity('Enter User Name Here')"
+                        oninput="this.setCustomValidity('')"
+                    > 
+
+                    <div id="form-new-member-section">
+                        <div id="form-relation-selector">
+                            <p class="form-field-label">Relation to Member</p>  
+                            <div id="form-relation-btns">
+                                <div class="relation-btn-box">
+                                    <input type="radio" id="child" name="relation" value="child" required>
+                                    <label for="child">Child</label>
+                                </div>
+
+                                <div class="relation-btn-box">
+                                    <input type="radio" id="parent" name="relation" value="parent">
+                                    <label for="parent">Parent</label>
+                                </div>
+
+                                <div class="relation-btn-box"> 
+                                    <input type="radio" id="sibling" name="relation" value="sibling">
+                                    <label for="sibling">Sibling</label>
+                                </div>
+
+                                <div class="relation-btn-box"> 
+                                    <input type="radio" id="spouse" name="relation" value="spouse">
+                                    <label for="spouse">Spouse</label>
+                                </div> 
+                            </div>
+                        </div>
+
+                        <div id="form-selected-member-section">
+                            <p class="form-field-label">Selected Member</p>  
+                            <img id="selected-member-img"/>
+                            <p id="selected-member-name"></p>  
+                        </div>
+                    </div>
+
+                    <div class="dialog-btns-container">
+                        <button id="cancel-form-btn" class="dialog-btn outline-btn" type="button">
+                            CANCEL
+                        </button>
+                        <button id="submit-btn" class="dialog-btn filled-btn" type="submit">
+                            SUBMIT
+                        </button> 
+                    </div>
+                </form> 
+            </div>
+        </dialog>
+
+        <div id="main-tree-container"> 
+            <svg id="main-tree-svg" width="100%" height= "100%"></svg>  
+            <div id="zoom-bar"> 
+                <div id="zoom-out-btn" class="zoom-btn">
+                    <img src="assets/zoom-out.png" />
+                </div>
+                <div id="zoom-progress">
+                    <div id="zoom-progress-value"></div>
+                </div>
+                <div id="zoom-in-btn" class="zoom-btn">
+                    <img src="assets/zoom-in.png" />
+                </div>
+            </div>
+        </div>
+
+        <dialog id="extended-tree-dialog">
+            <div id="extended-tree-header" class="dialog-header">
+                <p>Extended Family</p>
+                <button id="close-tree-dialog-btn" class="close-dialog-btn">
+                    <img src="assets/close_white.png" />
+                </button>
+            </div>
+            <div id="extended-tree-container"> 
+                <svg id="extended-tree-svg" width="100%" height= "100%"></svg>  
+            </div>
+        </dialog>
+
+        <dialog id="warning-dialog">
+            <div id="warning-header" class="dialog-header">
+                <p>Warning</p> 
+            </div>
+           <div id="warning-body"> 
+                <p id="warning-msg"> 
+                    This action will delete all family members, excluding the main user.
+                </p>
+                <div class="dialog-btns-container">
+                    <button id="cancel-warning-btn" class="dialog-btn outline-btn" type="button">
+                        CANCEL
+                    </button>
+                    <button id="proceed-warning-btn" class="dialog-btn filled-btn" type="submit">
+                        PROCEED
+                    </button> 
+                </div>
+           </div>
+        </dialog>
+
+        <div id="snackbar"></div>
+    </body>
+</html>  
