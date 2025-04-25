@@ -1,6 +1,6 @@
 /** 
- * Custom class that maps `Levels` and `Members` to their id
- *  Assigns & tracks most recently id values to assure unique ids for each item 
+ * Custom class that maps `Levels` and `Members` to their ID
+ * Assigns & tracks ID values to ensure unique IDs for each item 
  */
 
 class UniqueIDMap {  

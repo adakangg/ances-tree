@@ -109,7 +109,7 @@ function setupMemberModeBtns() {
     document.getElementById("delete-btn-box").append(createTooltip("Delete Member")); 
 
     document.getElementById("refresh-btn").onclick = showWarningDialog;
-    document.getElementById("refresh-btn-box").append(createTooltip("Refresh Tree")); 
+    document.getElementById("refresh-btn-box").append(createTooltip("Reset")); 
 }
 
 // adjust ui to indicate selection mode 
