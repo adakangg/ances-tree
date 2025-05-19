@@ -173,7 +173,7 @@ function closeExtendedTree() {
 
 /** Family Tree Functions */ 
 
-function buildTree() {     
+function buildTree() {      
     treeUtils.positionMembers(members, levels);  
     drawTree.drawTree(members, levels, handleMemberClick, updateZoomProgress);  
 }
@@ -192,7 +192,7 @@ function handleMemberClick(clickedMember, memberNodeRect) {
         } else {
             setFormValues(); 
             openDialogType = "form";   
-            formDialog.showModal();  // open form to add/edit member 
+            formDialog.showModal();   
             positionDialog(memberNodeRect, formDialog); 
         } 
     } else { 
@@ -243,9 +243,9 @@ function handleAddMember() {
 }
 
 function handleEditMember() {   
-    let member = members.get(selectedMember.memberID);
+    let member = members.get(selectedMember.memberID); 
     member.name = nameInput.value;
-    member.image = selectedFormImgPath; 
+    member.image = selectedFormImgPath;  
     buildTree();
 }
 
@@ -276,11 +276,11 @@ function setupFormDialog() {
     setupImgSelector();  
     dragElement(formDialog, "form-header");
     document.getElementById("cancel-form-btn").onclick = closeForm; 
-    memberForm.onsubmit = (event) => {
+    memberForm.onsubmit = (event) => { 
         event.preventDefault();
         if (selectMode == "add") {
             handleAddMember(); 
-        } else if (selectMode == "edit") {
+        } else if (selectMode == "edit") { 
             handleEditMember();
         } 
         closeForm();
@@ -290,16 +290,19 @@ function setupFormDialog() {
 function setFormValues() { 
     let header = document.getElementById("form-header"); 
     let addMemberSection = document.getElementById("form-new-member-section"); 
+    let relationBtn = document.getElementById("child");
     if (selectMode == "add") {
         header.textContent = "Add a New Member"; 
         showElement(addMemberSection);
         document.getElementById("selected-member-img").src = selectedMember.image;
         document.getElementById("selected-member-name").textContent = selectedMember.name; 
+        relationBtn.required = true;
     } else {
         header.textContent = "Edit Member"
         hideElement(addMemberSection);
         selectedFormImg.src = selectedMember.image; 
         nameInput.value = selectedMember.name; 
+        relationBtn.required = false;
     } 
 }
 

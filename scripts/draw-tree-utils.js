@@ -9,7 +9,7 @@ const NODE_WIDTH = 140; // horizontal distance between nodes on same level
 let members = [], levels = [], selectedTree = null;
 let zoomFactor = d3.zoomIdentity.k;  
 const minZoom = 0.5, maxZoom = 2;
-let zoom = null;
+let zoom = null; 
 
 // renders main tree showing user's entire family
 let mainTree = { svg: d3.select("#main-tree-svg"), extension: "main" }; 
@@ -34,7 +34,7 @@ export function drawTree(membersData, levelsData, handleMemberClick, updateZoomP
     selectedTree = mainTree; 
     createNodes(upperTree, mainTree.upperNodes, "upper-tree-node", handleMemberClick);
     createNodes(lowerTree, mainTree.lowerNodes, "lower-tree-node", handleMemberClick);
-    setZoom(mainTree, updateZoomProgress);  
+    setZoom(mainTree, updateZoomProgress);   
     linkMainTree(upperTreeData, lowerTreeData); 
     linkSiblings(parentMarr);
     centerTree(mainTree);
@@ -254,6 +254,10 @@ function centerTree(containers) {
     const centerY = (svgBox.height - treeBBox.height) / 2 - treeBBox.y; 
     containers.tree.attr("transform", `translate(${centerX}, ${centerY})`); 
 }
+
+function pathIsDefaultImg(imgPath) {
+    return typeof imgPath === 'string' && imgPath.startsWith('assets/')
+}
  
 
 
@@ -272,12 +276,13 @@ function createNodes(treeData, nodesContainer, className, handleMemberClick) {
         
     // add family member's picture + name label
     nodes.each(function (d) { 
+        const usesDefaultImg = pathIsDefaultImg(d.data.image);
         d3.select(this)
             .append("circle")
             .attr("id", `circle-${ selectedTree.extension }-${ d.data.memberID }`) 
             .attr("r", NODE_RADIUS)   
             .attr("fill", "none")
-            .attr("stroke", contrastColor)
+            .attr("stroke", usesDefaultImg ? contrastColor : "none")
             .attr("stroke-width", 2);
  
         // split long names to prevent overlap with adjacent nodes
@@ -299,7 +304,7 @@ function createNodes(treeData, nodesContainer, className, handleMemberClick) {
             .attr("letter-spacing", "0.7") 
             .attr("x", 0) 
             .attr("dy", (d, i) => splitName.length > 1 ? (i === 0 ? `0.15em` : "1em") : "0"); // shift only for split/multi-lines
- 
+
         d3.select(this)
             .append("image")
             .attr("id", `image-${ selectedTree.extension }-${ d.data.memberID }`)
@@ -307,7 +312,9 @@ function createNodes(treeData, nodesContainer, className, handleMemberClick) {
             .attr("width", NODE_RADIUS*2)
             .attr("height", NODE_RADIUS*2)
             .attr("x", -NODE_RADIUS)  
-            .attr("y", -NODE_RADIUS); 
+            .attr("y", -NODE_RADIUS)
+            .attr("preserveAspectRatio", "xMidYMid slice")
+;
 
         d3.select(this)
             .on("click", function(event, d) {    
@@ -315,17 +322,21 @@ function createNodes(treeData, nodesContainer, className, handleMemberClick) {
                 const memberNodeRect = memberNode.getBoundingClientRect(); 
                 handleMemberClick(d.data, memberNodeRect); 
             })
-            .on("mouseover", function(event, d) { // highlights node   
-                d3.select(this).select("circle").attr("stroke", primaryColor);
-                d3.select(this).selectAll("text").attr("stroke", primaryColor);
-                d3.select(this).selectAll("text").attr("fill", primaryColor);
-            })
-            .on("mouseleave", function() { // removes highlight 
-                d3.select(this).select("circle").attr("stroke", contrastColor);
-                d3.select(this).selectAll("text").attr("stroke", contrastColor);
-                d3.select(this).selectAll("text").attr("fill", contrastColor);
-            })
             .style("cursor", "pointer"); 
+
+        if (usesDefaultImg) { 
+            d3.select(this) 
+                .on("mouseover", function(event, d) { // highlights node   
+                    d3.select(this).select("circle").attr("stroke", primaryColor);
+                    d3.select(this).selectAll("text").attr("stroke", primaryColor);
+                    d3.select(this).selectAll("text").attr("fill", primaryColor);
+                })
+                .on("mouseleave", function() { // removes highlight 
+                    d3.select(this).select("circle").attr("stroke", contrastColor);
+                    d3.select(this).selectAll("text").attr("stroke", contrastColor);
+                    d3.select(this).selectAll("text").attr("fill", contrastColor);
+                }); 
+        }
     }); 
 }
 
@@ -402,7 +413,7 @@ function linkUpperTree(level) {
             parentLvl.marriages.forEach((value) => {   
                 if (!selectedTree.processedMarriages.includes(value.marriageID)) {
                     let parentMarr = value;
-                    if (parentMarr.children.length > 1) { // connect siblings
+                    if (parentMarr.children.length > 1) { // connect siblings 
                         let lines = createSiblingLine(parentMarr, false);   
                         if (parentMarr.between.length > 0) {
                             let parentChildLine = { 
@@ -428,8 +439,7 @@ function linkUpperTree(level) {
                         }  
                     }
                 }  
-            });
-            
+            }); 
         } 
         level.children.forEach(child => linkUpperTree(child));
     };
@@ -478,10 +488,11 @@ function getMarriageMidpoint(marriage) {
     }
     return null; 
 }
-
+ 
 // create horizontal line linking siblings + vertical line connecting individual nodes to sibling line
-function createSiblingLine(parentMarr, includeSpouse) {  
-    let siblingLine = { x1: 0, y1: 0, x2: 0, y2: 0 };   
+function createSiblingLine(parentMarr, includeSpouse) {   
+    let siblingLine = { x1: Infinity, y1: Infinity, x2: -Infinity, y2: -Infinity };   
+
     let topConnectorLines = [];
     for (let i = 0; i < parentMarr.children.length; i++) {
         let child = members.get(parentMarr.children[i]);
@@ -493,14 +504,15 @@ function createSiblingLine(parentMarr, includeSpouse) {
             y2: childNode.y - NODE_TOP_CONNECTOR_LENGTH
         }; 
         topConnectorLines.push(topConnectorLine);
-        if (i === 0) {
+
+        if (topConnectorLine.x2 < siblingLine.x1) {
             siblingLine.x1 = topConnectorLine.x2;
             siblingLine.y1 = topConnectorLine.y2;
-        }
-        if (i === parentMarr.children.length - 1) {
+        } 
+        if (topConnectorLine.x2 > siblingLine.x2) {
             siblingLine.x2 = topConnectorLine.x2;
             siblingLine.y2 = topConnectorLine.y2;
-        }   
+        }
 
         if (includeSpouse) {
             let childMarr = treeUtils.getMarriage(levels, child.marriage); 

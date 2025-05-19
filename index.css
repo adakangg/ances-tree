@@ -76,7 +76,7 @@ h1 {
 }
 
 #subtitle-text { 
-    font-size: 16px;
+    font-size: 14px;
     color: slateblue;  
 }
 
@@ -345,11 +345,8 @@ input[type="text"] {
 }
 
 #form-selected-img {
-    width: 100px;
-    height: 100px; 
-    margin-bottom: 20px;
-    border: 2px solid #969696;
-    border-radius: 50%;
+    width: 100px; 
+    margin-bottom: 20px; 
 }
 
 #form-default-img-options {
