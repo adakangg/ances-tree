@@ -1,6 +1,6 @@
-/** Represents each family member/node on tree */
+/** Represents each family member node on tree */
 
-class Member {
+export class Member {
     constructor({ 
         memberID, 
         level, 
@@ -8,7 +8,7 @@ class Member {
         marriage = 0, 
         isAddOnSpouse = false, 
         name, 
-        image = "assets/avatar1.png" 
+        image = "/assets/avatar1.png" 
     } = {}) {
         this.memberID = memberID;
         this.level = level;  
@@ -18,6 +18,4 @@ class Member {
         this.name = name;
         this.image = image;
     }   
-};
-
-export { Member };
+}; 

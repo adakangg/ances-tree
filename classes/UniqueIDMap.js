@@ -1,9 +1,9 @@
 /** 
  * Custom class that maps `Levels` and `Members` to their ID
- * Assigns & tracks ID values to ensure unique IDs for each item 
+ * Tracks used ID values to ensure unique IDs assigned for each item 
  */
 
-class UniqueIDMap {  
+class UniqueIDMap { 
   constructor(data) {  
     this.map = data.map;
     this.usedIDs = new Set(data.usedIDs);
@@ -18,19 +18,15 @@ class UniqueIDMap {
     return newID; 
   }
  
-  set(id, value) { this.map.set(id, value); }
+  set(id, value) { this.map.set(id, value) }
  
-  delete(id) {
-    if (this.map.has(id)) this.map.delete(id); 
-  }
+  delete(id) { if (this.map.has(id)) this.map.delete(id) }
  
-  get(id) { return this.map.get(id); } 
+  get(id) { return this.map.get(id) } 
 };
 
-
-
-class MemberMap extends UniqueIDMap {
-  constructor(data) { super(data); }
+export class MemberMap extends UniqueIDMap {
+  constructor(data) { super(data) }
  
   set(id, value) { 
     super.set(id, value);
@@ -44,28 +40,24 @@ class MemberMap extends UniqueIDMap {
   }  
 }
 
+export class LevelMap extends UniqueIDMap {
+  constructor(data) { super(data) }
 
+  getNextMarriageID() { return super.getNextID() }
 
-class LevelMap extends UniqueIDMap {
-  constructor(data) { super(data); }
-
-  getNextMarriageID() { return super.getNextID(); }
-
-  // Adds a new entry to the Map with a unique ID
+  // adds new entry with unique ID to the Map
   setMarriage(levelID, marriageID, marriage) { 
-    let level = this.get(levelID);
+    const level = this.get(levelID);
     level.marriages.set(marriageID, marriage);
     this.usedIDs.add(marriageID); 
     this.nextID = marriageID + 1;  
   } 
     
   deleteMarriage(levelID, marriageID) {
-    let level = this.get(levelID);
+    const level = this.get(levelID);
     if (level.marriages.has(marriageID)) {
       level.marriages.delete(marriageID);
       this.usedIDs.delete(marriageID); 
     }
   }  
-}
-  
-export { LevelMap, MemberMap };
+} 

@@ -1,10 +1,8 @@
-/** Represents each level on tree */
+/** Represents each level on tree which consists of siblings/cousins + their spouses */
 
-class Level {
+export class Level {
   constructor({ levelID, marriages = new Map() } = {}) {
     this.levelID = levelID; 
     this.marriages = marriages;
   }  
-};
-
-export { Level };
+}; 

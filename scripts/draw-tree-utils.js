@@ -1,372 +1,579 @@
-import * as treeUtils from './tree-utils.js';
+import * as treeUtils from "./tree-utils.js"; 
 
-const primaryColor = "#6a5acd";
-const contrastColor = "#fff";   
-const NODE_RADIUS = 30; 
-const NODE_TOP_CONNECTOR_LENGTH = 10; // vertical line connecting sibling nodes to horizontal sibling line
-const LEVEL_HEIGHT = 150; // vertical distance between parent and child levels
-const NODE_WIDTH = 140; // horizontal distance between nodes on same level
-let members = [], levels = [], selectedTree = null;
-let zoomFactor = d3.zoomIdentity.k;  
-const minZoom = 0.5, maxZoom = 2;
-let zoom = null;
+const NODE_RADIUS = 30;
+const NODE_TOP_CONNECTOR_LENGTH = 15; // vertical line connecting sibling nodes to horizontal sibling line
+const LEVEL_HEIGHT = 150; // vertical distance between parent & child levels
+let rootParentMarriage = null, members = [], levels = [], selectedTree = null, mainTree = null;
 
-// renders main tree showing user's entire family
-let mainTree = { svg: d3.select("#main-tree-svg"), extension: "main" }; 
+// main tree consists of 2 trees connected
+//  1. upper tree where main user is root for ancestors
+//  2. lower tree where main user is root for descendants
+export function drawMainTree(membersData, levelsData, handleMemberClick, updateZoomProgress) {
+    members = membersData, levels = levelsData;  
+    const rootMember = members.get(1);      
+    rootParentMarriage = treeUtils.getMarriage(levels, rootMember.parentMarriage);  
 
-// renders tree showing only selected member's descendants in popup
-let extendedTree = { svg: d3.select("#extended-tree-svg"), extension: "ext" };
-
-
-// main tree consists of two trees:
-//    upper tree where main user acts as root for ancestors
-//    lower tree where main user acts as root for descendants
-export function drawTree(membersData, levelsData, handleMemberClick, updateZoomProgress) { 
-    members = membersData;
-    levels = levelsData;          
-    let rootMember = members.get(1);      
-    let parentMarr = treeUtils.getMarriage(levels, rootMember.parentMarriage);  
-    let upperTreeData = formatTreeHierarchy("upper", parentMarr);  
-    let lowerTreeData = formatTreeHierarchy("lower", parentMarr);   
-    let upperTree = setTreeLayout("upper", upperTreeData);  
-    let lowerTree = setTreeLayout("lower", lowerTreeData);  
-    setupMainTreeDOM(); 
+    // format upper/lower trees into d3-compliant hierarchy
+    const upperTreeData = formatTreeHierarchy("upper", rootParentMarriage);  
+    const lowerTreeData = formatTreeHierarchy("lower", rootParentMarriage);  
+    const upperTreeLayout = setTreeLayout("upper", upperTreeData);  
+    const lowerTreeLayout = setTreeLayout("lower", lowerTreeData);  
+    mainTree = setupMainTreeDOM();
     selectedTree = mainTree; 
-    createNodes(upperTree, mainTree.upperNodes, "upper-tree-node", handleMemberClick);
-    createNodes(lowerTree, mainTree.lowerNodes, "lower-tree-node", handleMemberClick);
-    setZoom(mainTree, updateZoomProgress);  
-    linkMainTree(upperTreeData, lowerTreeData); 
-    linkSiblings(parentMarr);
+    
+    // create/position/link tree nodes 
+    createNodes(upperTreeLayout, mainTree.upperNodes, "upper-tree-node", handleMemberClick);
+    createNodes(lowerTreeLayout, mainTree.lowerNodes, "lower-tree-node", handleMemberClick);
+    setTreeZoom(mainTree, "main", updateZoomProgress);  
+    positionTree(upperTreeData, lowerTreeData); 
     centerTree(mainTree);
 }
 
-export function drawExtendedTree(selectedMemberID) {
-    let rootMember = members.get(selectedMemberID);
-    setupExtTreeDOM(); 
-    selectedTree = extendedTree; 
-    let extTreeData = formatTreeHierarchy("lower", { children: [selectedMemberID] });  
-    let extTree = setTreeLayout("lower", extTreeData); 
-    createNodes(extTree, extendedTree.nodes, "extended-tree-node", null); 
-    setZoom(extendedTree);  
-    let marriage = treeUtils.getMarriage(levels, rootMember.marriage);
+export function drawExtendedTree(selectedMemberID, updateZoomProgress) {
+    // format tree into d3-compliant hierarchy
+    const extTreeRootMember = members.get(selectedMemberID);
+    const extendedTree = setupExtTreeDOM();
+    const extTreeData = formatTreeHierarchy("lower", { children: [selectedMemberID] });  
+    const extTree = setTreeLayout("lower", extTreeData);
+    selectedTree = extendedTree;
+
+    // create/position/link tree nodes 
+    createNodes(extTree, extendedTree.nodes, "extended-tree-node");
+    setTreeZoom(extendedTree, "extended", updateZoomProgress);  
+    const marriage = treeUtils.getMarriage(levels, extTreeRootMember.marriage);
     linkSpouses(marriage);
     linkLowerTree(extTreeData); 
     drawLinks();
-    centerTree(extendedTree); 
-}
+    centerTree(extendedTree);
+}  
 
-export function closeExtendedTree() { selectedTree = mainTree; }
- 
+export function resetSelectedTree() { selectedTree = mainTree };
 
 
 /** Tree Layout Setup Functions */
-
-// recursively sets each member's parents/siblings as their `children` in nested hierarchy
-// used to construct upper levels of tree 
+// recursively sets each member's parents as their `children` in nested hierarchy (for upper tree) 
 function getParentsHierarchy(memberID, spouseIndex) {
-    let member = members.get(memberID);     
-    let parents = [], parentSiblings = []; 
-    let parentMarr = treeUtils.getMarriage(levels, member.parentMarriage);   
-    if (parentMarr) { // add parents 
-        for (let i = 0; i < parentMarr.between.length; i++) { 
-            let parent = getParentsHierarchy(parentMarr.between[i], i);
-            if (parent) parents.push(...parent);   
-        };
-        
-        parentMarr.children.forEach((childID) => { // add parents siblings + their spouses 
-            let sibling = members.get(childID); 
-            if (sibling.memberID !== memberID) { 
-                let siblingMarr = treeUtils.getMarriage(levels, sibling.marriage);
-                let siblingChildren = [], spouse = null;
-                if (siblingMarr) {  
-                    siblingMarr.children.forEach((childID) => { 
-                        let children = getChildrenHierarchy(childID);
-                        if (children) siblingChildren.push(...children); 
-                    })
-                    spouse = treeUtils.getSpouse(sibling.memberID, siblingMarr, members); 
-                };
+    const member = members.get(memberID);    
+    const parents = [], siblings = [];
+    const parentMarr = treeUtils.getMarriage(levels, member.parentMarriage);   
+    parentMarr?.between?.forEach((parentID, index) => {  
+        const parent = getParentsHierarchy(parentID, index);
+        if (parent) parents.push(...parent);  
+    })
 
-                parentSiblings.push({ 
-                    name: sibling.name, 
-                    memberID: sibling.memberID,  
-                    hiddenChildren: siblingChildren, // hide actual children to prevent overlap with lower levels 
-                    children: [], // only get parents for sibling who is `main` parent 
+    // set member's siblings + their spouses/children on same level
+    parentMarr?.children?.forEach(childID => { 
+        const sibling = members.get(childID);
+        if (sibling.memberID !== memberID) {
+            const siblingMarr = treeUtils.getMarriage(levels, sibling.marriage);
+            const siblingChildren = []; 
+            siblingMarr?.children?.forEach(childID => {
+                const children = getChildrenHierarchy(childID);
+                if (children) siblingChildren.push(...children);
+            })
+            siblings.push({
+                name: sibling.name,
+                memberID: sibling.memberID,  
+                hiddenChildren: siblingChildren, // hide actual children to prevent overlap with tree's lower levels
+                children: [], // only get parents for sibling who is `main` parent (direct ancestor of root user)
+                childrenLevel: member.level-1,  
+                width: 60,  
+                image: sibling.image
+            });
+            const spouse = treeUtils.getSpouse(sibling.memberID, siblingMarr, members); 
+            if (spouse) {  // siblings' spouses included in member's `children` to position them on the same level
+                siblings.push({
+                    name: spouse.name,
+                    memberID: spouse.memberID,
+                    hiddenChildren: [],
+                    children: [],
                     childrenLevel: member.level-1,  
-                    width: 60,  
-                    image: sibling.image 
-                }); 
+                    width: 60,
+                    image: spouse.image
+                });  
+            };
+        }  
+    }); 
 
-                if (spouse) { 
-                    // sibling spouses included in member's `children` to position them on the same level
-                    parentSiblings.push({ 
-                        name: spouse.name, 
-                        memberID: spouse.memberID, 
-                        hiddenChildren: [],
-                        children: [], 
-                        childrenLevel: member.level-1,  
-                        width: 60, 
-                        image: spouse.image 
-                    });  
-                };
-            }  
-        });
-    };
-
-    let fmtedParent = {
-        name: member.name, 
-        memberID: member.memberID, 
-        children: parents, 
-        hiddenChildren: [],
-        childrenLevel: member.level-1, 
-        width: 60,  
-        image: member.image 
-    };
-
-    // place parents at innner-most position amongst siblings
-    if (spouseIndex === 0) {
-        return [...parentSiblings, fmtedParent];
-    } else {
-        return [fmtedParent, ...parentSiblings];
-    } 
-}
-
-// recursively sets each member's children as their `children` in nested hierarchy
-// used to construct lower levels of tree 
-function getChildrenHierarchy(memberID) {  
-    let member = members.get(memberID);    
-    let marr = treeUtils.getMarriage(levels, member.marriage);  
-    let children = [];   
-    if (marr) { 
-        marr.children.forEach((childID) => {
-            let memberChildren = getChildrenHierarchy(childID);
-            if (memberChildren) children.push(...memberChildren);  
-        });
-    }; 
-
-    let fmtedChild = [{
+    const fmtedMember = {
         name: member.name,
-        memberID: member.memberID, 
-        children: children, 
+        memberID: member.memberID,
+        children: parents,
+        hiddenChildren: [],
+        childrenLevel: member.level-1,
+        childrenMarriageID: member.parentMarriage,
+        width: 60,  
+        image: member.image
+    }; 
+    // place member at inner-most position amongst siblings
+    return spouseIndex === 0 ? [...siblings, fmtedMember] : [fmtedMember, ...siblings];
+}
+ 
+// recursively sets each member's children as their `children` in nested hierarchy (for lower tree) 
+function getChildrenHierarchy(memberID) {  
+    const member = members.get(memberID);
+    const marriage = treeUtils.getMarriage(levels, member.marriage);  
+    const children = [];   
+    marriage?.children?.forEach(childID => {
+        const memberChildren = getChildrenHierarchy(childID);
+        if (memberChildren) children.push(...memberChildren);  
+    }); 
+
+    const fmtedChildren = [{
+        name: member.name,
+        memberID: member.memberID,
+        children: children,
         childrenLevel: member.level + 1, 
         isAddOnSpouse: false,
-        width: 60, 
-        image: member.image 
+        width: 60,
+        image: member.image
     }];
-
-    if (marr) { // will always be add-on spouse in lower levels
-        let spouse = treeUtils.getSpouse(memberID, marr, members);
+    if (marriage) { // will always be add-on spouse in lower levels
+        const spouse = treeUtils.getSpouse(memberID, marriage, members);
         if (spouse) {
-            fmtedChild.push({
+            fmtedChildren.push({
                 name: spouse.name,
-                memberID: spouse.memberID, 
-                children: [], 
-                childrenLevel: member.level + 1, 
+                memberID: spouse.memberID,
+                children: [],
+                childrenLevel: member.level + 1,
                 isAddOnSpouse: true,
-                width: 60, 
-                image: spouse.image 
+                width: 60,
+                image: spouse.image
             });
         };
     };  
-    return fmtedChild; 
+    return fmtedChildren;
 }
 
-// formats data for tree's levels into hierarchical structure required by d3 
+// formats tree data into structure required by d3
 function formatTreeHierarchy(treeType, parentMarriage) {
-    let treeChildren = [], startLvl = 0;  
+    const treeChildren = []; 
     if (parentMarriage) {
-        if (treeType === "upper") {
-            startLvl = -1;
-            for (let i = 0; i < parentMarriage.between.length; i++) {
-                let parents = getParentsHierarchy(parentMarriage.between[i], i); 
+        if (treeType === "upper") { // format upper tree levels (root user's ancestors)
+            parentMarriage.between.forEach((parentID, index) => {
+                const parents = getParentsHierarchy(parentID, index);
                 if (parents) treeChildren.push(...parents);
-            }
-        } else if (treeType === "lower") {
-            startLvl = 0;  
-            parentMarriage.children.forEach((childID) => {
-                let children = getChildrenHierarchy(childID);
+            });
+        } else if (treeType === "lower") { // format upper tree levels (root user's descendants)
+            parentMarriage.children.forEach(childID => {
+                const children = getChildrenHierarchy(childID);
                 if (children) treeChildren.push(...children);
             })
         }
     }
-    return { 
+    return {
         name: "pseudo root",
         memberID: 0,
-        childrenLevel: startLvl,
+        childrenLevel: treeType === "upper" ? -1 : 0,
         children: treeChildren,
         image: null,
         width: 60
     };
 }
 
-// assign positions for each node + return tree's nodes in top-down order
+// assign node positions + return tree's nodes in top-down order
 function setTreeLayout(treeType, treeData) {
+    const NODE_WIDTH = 140; // horizontal distance between nodes on same level
     const root = d3.hierarchy(treeData);
-    const deepestLvl = d3.max(root.descendants(), d => d.depth); 
-    const treeLayout = d3.tree()
-        .nodeSize([NODE_WIDTH, LEVEL_HEIGHT])  
-        .separation((a, b) => a.parent === b.parent  ? 1 : 2); 
-
-    treeLayout(root); 
+    const deepestLvl = d3.max(root.descendants(), d => d.depth);
+    const treeLayout = d3.tree().nodeSize([NODE_WIDTH, LEVEL_HEIGHT]);  
+    treeLayout(root);
     if (treeType === "upper") { // flip upper tree upside down to place oldest generations at top
         root.descendants().forEach(d => d.y = deepestLvl * LEVEL_HEIGHT - d.y);
     }
     return root.descendants();
 }
- 
-function setupMainTreeDOM() {  
-    mainTree.svg.selectAll("*").remove();
-    let tree = mainTree.svg.append("g").attr("id", "main-tree"); 
-    let nodes = tree.append("g").attr("id", "main-tree-nodes");   
-    mainTree = { 
-        ...mainTree,
+
+// default/main tree shows user's entire family
+function setupMainTreeDOM() { 
+    d3.select("#main-tree-svg").selectAll("*").remove();
+    const tree = d3.select("#main-tree-svg").append("g").attr("id", "main-tree");
+    const nodes = tree.append("g").attr("id", "main-tree-nodes");  
+    return { 
+        svg: d3.select("#main-tree-svg"),
+        extension: "main",
         tree: tree,
         nodes: nodes,
-        upperNodes: nodes.append("g").attr("id", "upper-tree-nodes").attr("transform", (d) => `translate(0,0)`),
-        lowerNodes: nodes.append("g").attr("id", "lower-tree-nodes").attr("transform", (d) => `translate(0,0)`),  
+        upperNodes: nodes.append("g").attr("id", "upper-tree-nodes").attr("transform", () => "translate(0,0)"),
+        lowerNodes: nodes.append("g").attr("id", "lower-tree-nodes").attr("transform", () => "translate(0,0)"),  
         parentChildLines: new Map(),
         siblingLines: new Map(),
         spouseLines: new Map(),
-        topConnectorLines: new Map(),
-        processedMarriages: [] // track marriages processed when linking tree to prevent duplicate spouse lines
-    };
+        topConnectorLines: new Map()
+    }; 
 }
-
-function setupExtTreeDOM() {
-    extendedTree.svg.selectAll("*").remove();
-    let tree = extendedTree.svg.append("g").attr("id", "extended-tree"); 
-    let nodes = tree.append("g").attr("id", "extended-tree-nodes");  
-    extendedTree = {
-        ...extendedTree,
+  
+// extended tree shows selected member's hidden children in dialog
+function setupExtTreeDOM() { 
+    d3.select("#extended-tree-svg").selectAll("*").remove();
+    const tree = d3.select("#extended-tree-svg").append("g").attr("id", "extended-tree");
+    const nodes = tree.append("g").attr("id", "extended-tree-nodes");  
+    return {
+        svg: d3.select("#extended-tree-svg"),
+        extension: "extended",
         tree: tree,
-        nodes: nodes, 
+        nodes: nodes,
         parentChildLines: new Map(),
         siblingLines: new Map(),
         spouseLines: new Map(),
-        topConnectorLines: new Map(),
-        processedMarriages: [] 
+        topConnectorLines: new Map()
     };
 }
 
-function centerTree(containers) {   
-    const treeBBox = document.getElementById(containers.tree._groups[0][0].id).getBBox();   
+function centerTree(containers) {  
+    const treeBBox = document.getElementById(containers.tree._groups[0][0].id).getBBox();  
     const svgBox = document.getElementById(containers.svg._groups[0][0].id).getBoundingClientRect();    
-    const centerX = (svgBox.width - treeBBox.width) / 2 - treeBBox.x;
-    const centerY = (svgBox.height - treeBBox.height) / 2 - treeBBox.y; 
-    containers.tree.attr("transform", `translate(${centerX}, ${centerY})`); 
-}
- 
-
-
-/** Node Creation Functions */ 
-
-function createNodes(treeData, nodesContainer, className, handleMemberClick) {   
-    const nodes = nodesContainer
-        .selectAll(`.${className}`)
-        .data(treeData)
-        .enter() 
-        .append("g")
-        .attr("id", d => `g-${selectedTree.extension}-${ d.data.memberID }`)
-        .attr("class", className) 
-        .attr("transform", (d) => `translate(${d.x},${d.y})`) 
-        .style("display", (d) => d.data.memberID === 0 ? "none" : "default"); // hide pseudo root
-        
-    // add family member's picture + name label
-    nodes.each(function (d) { 
-        d3.select(this)
-            .append("circle")
-            .attr("id", `circle-${ selectedTree.extension }-${ d.data.memberID }`) 
-            .attr("r", NODE_RADIUS)   
-            .attr("fill", "none")
-            .attr("stroke", contrastColor)
-            .attr("stroke-width", 2);
- 
-        // split long names to prevent overlap with adjacent nodes
-        const splitName = splitStringByCharLength(d.data.name, 10, d.data.hiddenChildren?.length > 0);    
-        d3.select(this)
-            .append("text")
-            .attr("id", d => `text-${selectedTree.extension}-${ d.data.memberID }`) 
-            .attr("transform", `translate(${0},${ NODE_RADIUS * 1.5 })`)
-            .style("text-anchor", "middle")
-            .selectAll("tspan")
-            .data(splitName)
-            .enter()
-            .append("tspan")
-            .text(d => d)
-            .attr("fill", contrastColor)
-            .attr("stroke", contrastColor)
-            .attr("font-weight", "100")
-            .attr("font-size", "13px") 
-            .attr("letter-spacing", "0.7") 
-            .attr("x", 0) 
-            .attr("dy", (d, i) => splitName.length > 1 ? (i === 0 ? `0.15em` : "1em") : "0"); // shift only for split/multi-lines
- 
-        d3.select(this)
-            .append("image")
-            .attr("id", `image-${ selectedTree.extension }-${ d.data.memberID }`)
-            .attr("href", d.data.image) 
-            .attr("width", NODE_RADIUS*2)
-            .attr("height", NODE_RADIUS*2)
-            .attr("x", -NODE_RADIUS)  
-            .attr("y", -NODE_RADIUS); 
-
-        d3.select(this)
-            .on("click", function(event, d) {    
-                const memberNode = document.getElementById(`g-${ selectedTree.extension }-${ d.data.memberID }`);    
-                const memberNodeRect = memberNode.getBoundingClientRect(); 
-                handleMemberClick(d.data, memberNodeRect); 
-            })
-            .on("mouseover", function(event, d) { // highlights node   
-                d3.select(this).select("circle").attr("stroke", primaryColor);
-                d3.select(this).selectAll("text").attr("stroke", primaryColor);
-                d3.select(this).selectAll("text").attr("fill", primaryColor);
-            })
-            .on("mouseleave", function() { // removes highlight 
-                d3.select(this).select("circle").attr("stroke", contrastColor);
-                d3.select(this).selectAll("text").attr("stroke", contrastColor);
-                d3.select(this).selectAll("text").attr("fill", contrastColor);
-            })
-            .style("cursor", "pointer"); 
-    }); 
-}
-
-// apply zoom/panning within tree container
-function setZoom(tree, updateZoomProgress) { 
+    const centerX = (svgBox.width - treeBBox.width)/2 - treeBBox.x;
+    const centerY = (svgBox.height - treeBBox.height)/2 - treeBBox.y;
+    containers.tree.attr("transform", `translate(${centerX}, ${centerY})`);
+} 
+  
+function setTreeZoom(tree, treeType, updateZoomProgress) {
+    const MIN_ZOOM = 0.5;
+    const MAX_ZOOM = 2; 
     function filter(event) {
         event.preventDefault();
         return (!event.ctrlKey || event.type === "wheel") && !event.button;
-    }; 
-
-    zoom = d3.zoom() 
-        .scaleExtent([minZoom, maxZoom])
+    };  
+    const zoom = d3.zoom()
+        .scaleExtent([MIN_ZOOM, MAX_ZOOM])
         .filter(filter)
         .on("zoom", handleZoom);
  
-    function handleZoom(event) { 
-        const {transform} = event; 
-        let zoomPercent = ((transform.k - minZoom) / (maxZoom - minZoom)) * 100;   
-        updateZoomProgress(zoomPercent);  
+    function handleZoom(event) { // apply zoom transformation to nodes/lines
+        const { transform } = event;   
+        const zoomPercent = ((transform.k - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100;  
+        updateZoomProgress(zoomPercent, treeType);      
         tree.nodes.attr("transform", transform);
         tree.svg.selectAll("line").attr("transform", transform);
     };  
     tree.svg.call(zoom);    
 }
 
-export function zoomIn() { 
-    selectedTree.svg.transition()
-        .duration(100)
-        .call(zoom.scaleBy, 1.2); 
+export function zoomIn() { selectedTree.svg.transition().duration(100).call(zoom.scaleBy, 1.2) }
+
+export function zoomOut() { selectedTree.svg.transition().duration(100).call(zoom.scaleBy, 1/1.2) }
+
+
+/** Node/Link Creation Functions */  
+function createNodes(treeData, nodesContainer, className, handleMemberClick) {   
+    const nodes = nodesContainer
+        .selectAll(`.${className}`)
+        .data(treeData)
+        .enter()
+        .append("g")
+        .attr("id", d => `g-${selectedTree.extension}-${d.data.memberID}`)
+        .attr("class", className)
+        .attr("transform", d => `translate(${d.x},${d.y})`)
+        .style("display", d => d.data.memberID === 0 ? "none" : "default"); // hide pseudo root
+
+    nodes.each(function (d) { // add member's picture + name 
+        const usesDefaultImg = typeof d.data.image === "string" && d.data.image.startsWith("/assets/");
+        d3.select(this)
+            .append("circle")
+            .attr("id", `circle-${selectedTree.extension}-${d.data.memberID}`)
+            .attr("r", NODE_RADIUS)  
+            .attr("fill", "none")
+            .attr("stroke", usesDefaultImg ? "#fff" : "none")
+            .attr("stroke-width", 2);
+ 
+        // split long names to prevent overlap with adjacent nodes
+        const splitName = splitStringByCharLength(d.data.name, 10, d.data.hiddenChildren?.length > 0);    
+        d3.select(this)
+            .append("text")
+            .attr("id", d => `text-${selectedTree.extension}-${d.data.memberID}`)
+            .attr("transform", `translate(${0},${NODE_RADIUS * 1.5})`)
+            .style("text-anchor", "middle")
+            .selectAll("tspan")
+            .data(splitName)
+            .enter()
+            .append("tspan")
+            .text(d => d)
+            .attr("fill", "#fff")
+            .attr("stroke", "#fff")
+            .attr("font-weight", "100")
+            .attr("font-size", "13px")
+            .attr("letter-spacing", "0.7")
+            .attr("x", 0)
+            .attr("dy", (d, i) => splitName.length > 1 ? (i === 0 ? `0.15em` : "1em") : "0"); // shift only for split/multi-lines
+
+        d3.select(this)
+            .append("image")
+            .attr("id", `image-${selectedTree.extension}-${d.data.memberID}`)
+            .attr("href", d.data.image)
+            .attr("width", NODE_RADIUS*2)
+            .attr("height", NODE_RADIUS*2)
+            .attr("x", -NODE_RADIUS)  
+            .attr("y", -NODE_RADIUS)
+            .attr("preserveAspectRatio", "xMidYMid slice");
+
+        if (handleMemberClick) {
+            d3.select(this)
+            .on("click", function(event, d) {     
+                const memberNode = document.getElementById(`g-${selectedTree.extension}-${d.data.memberID}`);    
+                const memberNodeRect = memberNode.getBoundingClientRect();
+                handleMemberClick(d.data, memberNodeRect);
+            })
+            .style("cursor", "pointer");
+        }
+
+        if (usesDefaultImg) {
+            const PRIMARY_COLOR = "#91D378";
+            d3.select(this)
+                .on("mouseover", function() { // highlights node  
+                    d3.select(this).select("circle").attr("stroke", PRIMARY_COLOR);
+                    d3.select(this).selectAll("text").attr("stroke", PRIMARY_COLOR);
+                    d3.select(this).selectAll("text").attr("fill", PRIMARY_COLOR);
+                })
+                .on("mouseleave", function() { // removes highlight
+                    d3.select(this).select("circle").attr("stroke", "#fff");
+                    d3.select(this).selectAll("text").attr("stroke", "#fff");
+                    d3.select(this).selectAll("text").attr("fill", "#fff");
+                });
+        }
+    });
 }
 
-export function zoomOut() { 
-    selectedTree.svg.transition()
-        .duration(100)
-        .call(zoom.scaleBy, 1/1.2); 
+function drawLinks() {
+    const nodeLines = [
+        ...selectedTree.spouseLines.values(),
+        ...selectedTree.parentChildLines.values(),
+        ...selectedTree.siblingLines.values(),
+        ...[...selectedTree.topConnectorLines.values()].flat()
+    ];     
+    selectedTree.tree
+        .selectAll(".node-link")
+        .data(nodeLines)
+        .enter()
+        .append("line")
+        .attr("class", "node-link")
+        .attr("x1", d => d.x1)
+        .attr("y1", d => d.y1)
+        .attr("x2", d => d.x2)
+        .attr("y2", d => d.y2)
+        .attr("stroke", "#fff");  
+} 
+
+
+/** Main Tree Positioning/Linking Functions */
+// shift/create links between members + connect upper & lower tree
+function positionTree(upperTreeData, lowerTreeData) {  
+    linkUpperTree(upperTreeData); 
+    positionLowerTree(rootParentMarriage);
+    linkLowerTree(lowerTreeData);
+    levels.map.forEach(level => {
+        level.marriages.forEach(marriage => {  
+            if (marriage.between.length > 1) linkSpouses(marriage);   
+        });  
+    });  
+    drawLinks();
+} 
+
+// connect siblings + center parents above children in upper tree levels
+function linkUpperTree(upperTreeData, shiftBy = 0) {
+    upperTreeData.children.forEach(child => {  
+        if (shiftBy) shiftMember(child.memberID, shiftBy); // center parents above children 
+        if (child.childrenMarriageID) {
+            const parentMarr = treeUtils.getMarriage(levels, child.childrenMarriageID);
+            if (parentMarr) { 
+                const lines = linkSiblings(parentMarr); // create line connecting siblings
+                if (parentMarr.children.length > 1) {
+                    selectedTree.siblingLines.set(parentMarr.marriageID, lines.siblingLine);
+                    selectedTree.topConnectorLines.set(parentMarr.marriageID, lines.topConnectorLines);
+                } 
+                const siblingMidpointX = (lines.siblingLine.x1 + lines.siblingLine.x2) / 2; 
+                const marriageMidpoint = getSpouseMidpoint(parentMarr);
+                if (marriageMidpoint && parentMarr.between.length > 0) { // create line connecting parent + children
+                    const parentChildLine = {
+                        x1: siblingMidpointX,
+                        y1: marriageMidpoint.y,
+                        x2: siblingMidpointX,
+                        y2: lines.siblingLine.y1
+                    };  
+                    selectedTree.parentChildLines.set(parentMarr.marriageID, parentChildLine);   
+                }    
+                linkUpperTree(child, siblingMidpointX-marriageMidpoint?.x ?? 0);
+            }
+        }
+    });
+}
+ 
+// connect siblings + center children below parents in lower tree levels
+function linkLowerTree(lowerTreeData) {  
+    lowerTreeData.children.forEach(child => { 
+        const childMember = members.get(child.memberID);
+        if (childMember.marriage && !childMember.isAddOnSpouse) { 
+            const marriage = treeUtils.getMarriage(levels, childMember.marriage);
+            if (marriage.children.length) { 
+                const marriageMidpoint = getSpouseMidpoint(marriage); 
+                const siblingMidpoint = getSiblingMidpoint(marriage);  
+                let shift = siblingMidpoint.x - marriageMidpoint.x;
+                if (siblingMidpoint.x < marriageMidpoint.x) shift *= -1;  
+                const parentChildLine = { // create line connecting parent + children
+                    x1: marriageMidpoint.x,
+                    y1: marriageMidpoint.y,
+                    x2: marriageMidpoint.x,
+                    y2: siblingMidpoint.y
+                };  
+                selectedTree.parentChildLines.set(marriage.marriageID, parentChildLine);   
+                marriage.children.forEach(childID => { 
+                    if (shift) shiftMember(childID, shift); // center children under parents
+                });
+                if (marriage.children.length > 1) linkSiblings(marriage);
+            }
+        }  
+        linkLowerTree(child);
+    });   
 }
 
-const charIsLetter = (char) => { return /[a-zA-Z]/.test(char) };
+// center lower tree (main user + siblings + descendants) directly under main user's parents 
+function positionLowerTree() {  
+    if (rootParentMarriage && rootParentMarriage.children.length > 0) {
+        const marriageMidpoint = getSpouseMidpoint(rootParentMarriage);    
+        const siblingMidpoint = getSiblingMidpoint(rootParentMarriage);   
+        const shiftDistance = marriageMidpoint ? marriageMidpoint?.x - siblingMidpoint.x : 0;   
+        const treeDistance = treeUtils.hasGrandParents(rootParentMarriage, members, levels) ? LEVEL_HEIGHT : LEVEL_HEIGHT/12; 
+        d3.select(`#lower-tree-nodes`).attr("transform", `translate(${shiftDistance}, ${treeDistance})`);
+        if (rootParentMarriage.children.length > 1) linkSiblings(rootParentMarriage);      
+        if (rootParentMarriage.between.length > 0 ) { 
+            const parentChildLine = { 
+                x1: marriageMidpoint.x,
+                y1: marriageMidpoint.y,
+                x2: marriageMidpoint.x,
+                y2: siblingMidpoint.y + treeDistance 
+            };  
+            selectedTree.parentChildLines.set(rootParentMarriage.marriageID, parentChildLine);    
+        }
+    }
+}
 
-// separate string into characters of set length 
-const splitStringByCharLength = (str, chunkLength, showEllipses) => { 
+
+/** Positioning Utility Functions */ 
+function getElementTransformation(id, elementType) {
+    const element = selectedTree.svg.select(`#${elementType}-${selectedTree.extension}-${id}`);
+    const transformAttr = element.attr("transform");
+    const match = transformAttr.match(/translate\(([^,]+),([^,]+)\)/);
+    return { x: parseFloat(match[1]), y: parseFloat(match[2]) };
+}
+ 
+function getElementBounds (id, elementType) { //adjust element bounds for translations
+    const element = document.getElementById(`${elementType}-${selectedTree.extension}-${id}`);  
+    if (!element) return null; 
+    const elementBBox = element.getBBox();
+    const ctm = element.getCTM();
+    const transformedX = ctm.e + elementBBox.x * ctm.a + elementBBox.y * ctm.c;
+    const transformedY = ctm.f + elementBBox.x * ctm.b + elementBBox.y * ctm.d;
+    return {
+        x: transformedX,
+        y: transformedY,
+        height: elementBBox.height,
+        width: elementBBox.width
+    };
+}
+ 
+function shiftMember(memberID, shiftX, shiftY = 0) {   
+    const transformation = getElementTransformation(memberID, "g");     
+    d3.select(`#g-${selectedTree.extension}-${memberID}`)
+        .attr("transform", () => `translate(${transformation.x + shiftX}, ${transformation.y + shiftY})`);      
+    const member = members.get(memberID); 
+    const marriage = treeUtils.getMarriage(levels, member.marriage);
+    if (marriage) { // also shift add-on spouse
+        const spouse = treeUtils.getSpouse(memberID, marriage, members);
+        if (spouse?.isAddOnSpouse) shiftMember(spouse.memberID, shiftX, shiftY);  
+    }
+}
+ 
+function calcSpouseLine(marriage) {   
+    let leftSpouse = getElementBounds(marriage.between[0], "circle");
+    let rightSpouse = getElementBounds(marriage.between[1], "circle");  
+    if (leftSpouse.x > rightSpouse.x) {
+        const copy = {...leftSpouse};
+        leftSpouse = rightSpouse;
+        rightSpouse = copy;
+    }
+    return { // horizontal line connecting spouses
+        x1: leftSpouse.x + NODE_RADIUS*2,  
+        y1: leftSpouse.y + NODE_RADIUS,
+        x2: rightSpouse.x - 1,
+        y2: leftSpouse.y + NODE_RADIUS
+    };    
+}
+
+function linkSpouses(marriage) {  
+    const spouseLine = calcSpouseLine(marriage);  
+    selectedTree.spouseLines.set(marriage.marriageID, spouseLine);   
+} 
+ 
+function calcSiblingLine(parentMarr) {  
+    const siblingLine = { x1: Infinity, y1: Infinity, x2: -Infinity, y2: -Infinity }; // horizontal line connecting siblings
+    const topConnectorLines = []; // vertical lines connecting siblings to siblingLine
+    parentMarr.children.forEach(childID => { 
+        const childNode = getElementBounds(childID, "circle");   
+        const topConnectorLine = { 
+            x1: childNode.x + NODE_RADIUS,
+            y1: childNode.y,
+            x2: childNode.x + NODE_RADIUS,
+            y2: childNode.y - NODE_TOP_CONNECTOR_LENGTH
+        };
+        topConnectorLines.push(topConnectorLine);  
+        if (topConnectorLine.x2 < siblingLine.x1) {
+            siblingLine.x1 = topConnectorLine.x2;
+            siblingLine.y1 = topConnectorLine.y2;
+        }
+        if (topConnectorLine.x2 > siblingLine.x2) {
+            siblingLine.x2 = topConnectorLine.x2;
+            siblingLine.y2 = topConnectorLine.y2;
+        }  
+    });  
+    return { siblingLine: siblingLine, topConnectorLines: topConnectorLines };
+} 
+
+function linkSiblings(marriage) {  
+    const lines = calcSiblingLine(marriage);  
+    selectedTree.siblingLines.set(marriage.marriageID, lines.siblingLine);
+    selectedTree.topConnectorLines.set(marriage.marriageID, lines.topConnectorLines);  
+    return lines;
+} 
+
+function getSpouseMidpoint(marriage) {   
+    if (!marriage || marriage.between.length === 0) return null; 
+    if (marriage.between.length === 2) {
+        const spouse1 = getElementBounds(marriage.between[0], "circle");
+        const spouse2 = getElementBounds(marriage.between[1], "circle");  
+        return { // midpoint of horizontal spouse line
+            x: ((spouse1.x + NODE_RADIUS*2) + (spouse2.x - 1)) / 2,
+            y: spouse1.y + NODE_RADIUS
+        };
+    } else if (marriage.between.length === 1) { 
+        const spouse = getElementBounds(marriage.between[0], "circle");
+        const spouseName = getElementBounds(marriage.between[0], "text");  
+        return { // positioned under member's name
+            x: spouse.x + NODE_RADIUS,
+            y: spouseName.y + spouseName.height + 5
+        };
+    } 
+}  
+
+ function getSiblingMidpoint(parentMarr) {  
+    if (!parentMarr)  return null;
+    const childXPos = [];
+    let childYPos = 0;
+    parentMarr.children.forEach((childID, index) => {
+        const child = getElementBounds(childID, "circle"); 
+        childXPos.push(child.x + NODE_RADIUS);
+        if (index === 0) childYPos = child.y;
+    })  
+    return { // single child = positioned top of member node | children = midpoint of horizontal sibling line
+        x:  ((d3.min(childXPos) + d3.max(childXPos)) / 2), 
+        y: parentMarr.children.length > 1 ? childYPos - NODE_TOP_CONNECTOR_LENGTH : childYPos 
+    };  
+}  
+ 
+
+/** String Utility Functions */
+function charIsLetter(char) { return /[a-zA-Z]/.test(char) };
+ 
+function splitStringByCharLength(str, chunkLength, showEllipses) {
     const chunks = [];
     for (let i = 0; i < str.length; i += chunkLength) {
         let chunk = str.substr(i, chunkLength);
@@ -382,414 +589,4 @@ const splitStringByCharLength = (str, chunkLength, showEllipses) => {
     }
     if (showEllipses) chunks.push(". . .");
     return chunks;
-}
-
- 
-
-/** Node Linking Functions */
- 
-// position links between members in upper tree
-// lower level (children/siblings) positioned first -> parents adjusted to them
-function linkUpperTree(level) {   
-    if (level?.children.length > 0) {
-        let lvl = levels.get(level.childrenLevel);  
-        lvl.marriages.forEach((value) => {    
-            if (!selectedTree.processedMarriages.includes(value.marriageID)) linkSpouses(value);    
-        }); 
-
-        let parentLvl = levels.get(level.childrenLevel-1);    
-        if (parentLvl) {
-            parentLvl.marriages.forEach((value) => {   
-                if (!selectedTree.processedMarriages.includes(value.marriageID)) {
-                    let parentMarr = value;
-                    if (parentMarr.children.length > 1) { // connect siblings
-                        let lines = createSiblingLine(parentMarr, false);   
-                        if (parentMarr.between.length > 0) {
-                            let parentChildLine = { 
-                                x1: 0,
-                                y1: 0,
-                                x2: (lines.siblingLine.x1 + lines.siblingLine.x2) / 2,
-                                y2: lines.siblingLine.y1 
-                            };  
-                            selectedTree.parentChildLines.set(parentMarr.marriageID, parentChildLine);    
-                        } 
-                        selectedTree.siblingLines.set(parentMarr.marriageID, lines.siblingLine); 
-                        selectedTree.topConnectorLines.set(parentMarr.marriageID, lines.topConnectorLines);  
-                    } else if (parentMarr.children.length === 1) { 
-                        let childNode = getElementBounds(parentMarr.children[0], "circle");    
-                        if (parentMarr.between.length > 0) {
-                            let parentChildLine = { 
-                                x1: 0,
-                                y1: 0,
-                                x2: childNode.x + NODE_RADIUS,
-                                y2:  childNode.y
-                            };
-                            selectedTree.parentChildLines.set(parentMarr.marriageID, parentChildLine);    
-                        }  
-                    }
-                }  
-            });
-            
-        } 
-        level.children.forEach(child => linkUpperTree(child));
-    };
-}
-
-// position links between members in lower tree
-// upper level (parents) positioned first -> children adjusted to them
-function linkLowerTree(level) {     
-    if (level?.children.length > 0) {  
-        let parent = members.get(level.memberID);
-        if (parent) {
-            let parentMarr = treeUtils.getMarriage(levels, parent.marriage);    
-            if (parentMarr) {  
-                let parentsMidpoint = getMarriageMidpoint(parentMarr); 
-                let parentChildLine = {
-                    x1: parentsMidpoint.x,
-                    y1: parentsMidpoint.y,
-                    x2: 0,
-                    y2: 0
-                };    
-                selectedTree.parentChildLines.set(parentMarr.marriageID, parentChildLine); 
-                linkSiblings(parentMarr);  
-            }
-        }  
-        level.children.forEach(child => linkLowerTree(child));
-    } 
-}
-
-// returns midoint between member(s) of a marriage
-function getMarriageMidpoint(marriage) {   
-    if (marriage) {
-        if (marriage.between.length === 2) { 
-            let spouseLine = selectedTree.spouseLines.get(marriage.marriageID);  
-            return {
-                x: (spouseLine.x1 + spouseLine.x2) / 2,
-                y: spouseLine.y1
-            }
-        } else if (marriage.between.length === 1) { 
-            let member = getElementBounds(marriage.between[0], "circle"); 
-            let memberName = getElementBounds(marriage.between[0], "text");     
-            return {
-                x: member.x + NODE_RADIUS,
-                y: memberName.y + memberName.height + 5
-            } 
-        }
-    }
-    return null; 
-}
-
-// create horizontal line linking siblings + vertical line connecting individual nodes to sibling line
-function createSiblingLine(parentMarr, includeSpouse) {  
-    let siblingLine = { x1: 0, y1: 0, x2: 0, y2: 0 };   
-    let topConnectorLines = [];
-    for (let i = 0; i < parentMarr.children.length; i++) {
-        let child = members.get(parentMarr.children[i]);
-        let childNode = getElementBounds(parentMarr.children[i], "circle");  
-        let topConnectorLine = {
-            x1: childNode.x + NODE_RADIUS,
-            y1: childNode.y,
-            x2: childNode.x + NODE_RADIUS,
-            y2: childNode.y - NODE_TOP_CONNECTOR_LENGTH
-        }; 
-        topConnectorLines.push(topConnectorLine);
-        if (i === 0) {
-            siblingLine.x1 = topConnectorLine.x2;
-            siblingLine.y1 = topConnectorLine.y2;
-        }
-        if (i === parentMarr.children.length - 1) {
-            siblingLine.x2 = topConnectorLine.x2;
-            siblingLine.y2 = topConnectorLine.y2;
-        }   
-
-        if (includeSpouse) {
-            let childMarr = treeUtils.getMarriage(levels, child.marriage); 
-            if (childMarr) {
-                let spouse = treeUtils.getSpouse(child.memberID, childMarr, members);
-                if (spouse?.isAddOnSpouse) { 
-                    createSpouseLine(childMarr);  
-                }
-                if (childMarr.children.length > 0) {
-                    let marrMidpoint = getMarriageMidpoint(childMarr);
-                    let childParentChildLine = {
-                        x1: marrMidpoint.x,
-                        y1: marrMidpoint.y,
-                        x2: 0,
-                        y2: 0,
-                    };
-                    selectedTree.parentChildLines.set(childMarr.marriageID, childParentChildLine); 
-                } 
-            }
-        }
-    } 
-    return {
-        siblingLine: siblingLine,
-        topConnectorLines: topConnectorLines
-    }; 
-}
-
-// calculates distance to shift target value to match reference value
-function calcShiftDistance(targetPoint, referencePoint) {
-    let diff = Math.abs(referencePoint - targetPoint);
-    if (targetPoint > referencePoint) diff *= -1;     
-    return diff;
-}
-
-// connect + position child(ren) (& their spouses/children) for a given marriage
-// set ending point for children in parent-child connecting line
-function linkSiblings(parentMarr) {     
-    let parentChildLine = selectedTree.parentChildLines.get(parentMarr.marriageID);   
-    let shiftDistance = 0;
-    if (parentMarr.children.length > 1) {  
-        let lines = createSiblingLine(parentMarr, true);   
-        if (parentChildLine) {
-            // shift children + their spouses + lines if not centered under parents
-            let siblingMidpointX = (lines.siblingLine.x1 + lines.siblingLine.x2) / 2; 
-            if (siblingMidpointX !== parentChildLine.x1) { 
-                shiftDistance = calcShiftDistance(siblingMidpointX, parentChildLine.x1); 
-                parentMarr.children.forEach((childID) => {
-                    shiftMember(childID, shiftDistance + NODE_RADIUS);
-                })
-                lines.siblingLine = {
-                    x1: lines.siblingLine.x1 + shiftDistance,
-                    y1: lines.siblingLine.y1,
-                    x2: lines.siblingLine.x2 + shiftDistance,
-                    y2: lines.siblingLine.y2, 
-                };  
-                lines.topConnectorLines = lines.topConnectorLines.map(line => {
-                    return {
-                        x1: line.x1 + shiftDistance,
-                        y1: line.y1,
-                        x2: line.x2 + shiftDistance,
-                        y2: line.y2
-                    }
-                });   
-            }   
-            parentChildLine = {
-                x1: parentChildLine.x1,
-                y1: parentChildLine.y1,
-                x2: parentChildLine.x1, 
-                y2: lines.siblingLine.y2 
-            }; 
-            selectedTree.parentChildLines.set(parentMarr.marriageID, parentChildLine); 
-        }   
-        selectedTree.topConnectorLines.set(parentMarr.marriageID, lines.topConnectorLines); 
-        selectedTree.siblingLines.set(parentMarr.marriageID, lines.siblingLine);    
-    } else if (parentMarr.children.length === 1) { 
-        let child = members.get(parentMarr.children[0]); 
-        let childNode = getElementBounds(parentMarr.children[0], "circle");     
-        let childMarr = treeUtils.getMarriage(levels, child.marriage);  
-        if (childMarr) { 
-            // create spouse and start parent-child lines for this member
-            let spouse = treeUtils.getSpouse(child.memberID, childMarr, members);
-            if (spouse?.isAddOnSpouse) createSpouseLine(childMarr);  
-            if (childMarr.children.length > 0) {
-                let marrMidpoint = getMarriageMidpoint(childMarr); 
-                let childParentChildLine = {
-                    x1: marrMidpoint.x,
-                    y1: marrMidpoint.y,
-                    x2: 0,
-                    y2: 0 
-                };
-                selectedTree.parentChildLines.set(childMarr.marriageID, childParentChildLine); 
-            }; 
-        }
-        if (parentChildLine) {    
-            let childMidpoint = childNode.x + NODE_RADIUS;  
-            if (childMidpoint !== parentChildLine.x1) {     
-                shiftDistance = calcShiftDistance(childMidpoint - NODE_RADIUS, parentChildLine.x1);
-                shiftMember(parentMarr.children[0], shiftDistance);   
-                childMidpoint = getElementBounds(parentMarr.children[0], "circle").x + NODE_RADIUS;
-            };      
-            
-            parentChildLine = {
-                x1: parentChildLine.x1,
-                y1: parentChildLine.y1,
-                x2: childMidpoint, 
-                y2: childNode.y 
-            };
-            selectedTree.parentChildLines.set(parentMarr.marriageID, parentChildLine); 
-        } 
-    }  
-}
-
-// connect + position parent(s) for a given marriage
-// set starting point for their children in parent-child connecting line
-function linkSpouses(marriage) { 
-    if (marriage.between.length > 0) {
-        let parentChildLine = selectedTree.parentChildLines.get(marriage.marriageID);   
-        let shiftDistance = 0;
-        if (marriage.between.length === 2) {  
-            let spouseLine = createSpouseLine(marriage); 
-            let spousesMidpointX = (spouseLine.x1 + spouseLine.x2) / 2;     
-            if (parentChildLine) { 
-                if (spousesMidpointX !== parentChildLine.x2) {       
-                    // shift spouses + their siblings + lines if not centered above children  
-                    shiftDistance = calcShiftDistance(spousesMidpointX, parentChildLine.x2);  
-                    marriage.between.forEach((spouseID) => {
-                        shiftMember(spouseID, shiftDistance + NODE_RADIUS);
-                        shiftMemberSiblings(spouseID, shiftDistance + NODE_RADIUS); 
-                    })
-                    spouseLine =  { 
-                        x1: spouseLine.x1 + shiftDistance,  
-                        y1: spouseLine.y1,
-                        x2: spouseLine.x2 + shiftDistance,
-                        y2: spouseLine.y2 
-                    }; 
-                } 
-                spousesMidpointX = (spouseLine.x1 + spouseLine.x2) / 2; 
-                parentChildLine.x1 = spousesMidpointX;
-                parentChildLine.y1 = spouseLine.y1;   
-            }     
-            selectedTree.spouseLines.set(marriage.marriageID, spouseLine);  
-        } else if (marriage.between.length === 1) {
-            if (parentChildLine) {
-                let parentID = marriage.between[0];
-                let parent = getElementBounds(parentID, "g");   
-                let parentMidpointX = getMarriageMidpoint(marriage).x;  
-                if (parentMidpointX !== parentChildLine.x2) {    
-                    shiftDistance = calcShiftDistance(parentMidpointX, parentChildLine.x2);
-                    shiftMember(parentID, shiftDistance + NODE_RADIUS);
-                    shiftMemberSiblings(parentID, shiftDistance + NODE_RADIUS);  
-                }  
-                parentChildLine.x1 = parentMidpointX + shiftDistance;
-                parentChildLine.y1 = parent.y + parent.height + 5;    
-            } 
-        }  
-    } 
-    selectedTree.processedMarriages.push(marriage.marriageID);
-}
- 
-// create horizontal line linking spouses
-function createSpouseLine(marriage) {   
-    let leftSpouse = getElementBounds(marriage.between[0], "circle");
-    let rightSpouse = getElementBounds(marriage.between[1], "circle"); 
-
-    if (leftSpouse.x > rightSpouse.x) {
-        let copy = {...leftSpouse};
-        leftSpouse = rightSpouse;
-        rightSpouse = copy;
-    }
-    let spouseLine = { 
-        x1: leftSpouse.x + NODE_RADIUS*2,  
-        y1: leftSpouse.y + NODE_RADIUS,
-        x2: rightSpouse.x - 1,
-        y2: leftSpouse.y + NODE_RADIUS 
-    };  
-    selectedTree.spouseLines.set(marriage.marriageID, spouseLine); 
-    return spouseLine;
-}
-
-// shift member and their add-on spouses `x` position by specified distance 
-function shiftMember(memberID, shiftDistance) {   
-    let element = getElementBounds(memberID, "g");   
-    let transformation = getElementTransformation(memberID, "g");    
-    d3.select(`#g-${selectedTree.extension}-${memberID}`)
-        .attr("transform", function () { 
-            return `translate(${ element.x + shiftDistance }, ${ transformation.y })`;  
-        });   
-    let member = members.get(memberID);
-    let marr = treeUtils.getMarriage(levels, member.marriage);
-    if (marr) {
-        let spouse = treeUtils.getSpouse(memberID, marr, members);
-        if (spouse?.isAddOnSpouse) { 
-            shiftMember(spouse.memberID, shiftDistance); 
-            let spouseLine = selectedTree.spouseLines.get(marr.marriageID);   
-            spouseLine.x1 = spouseLine.x1 + shiftDistance - NODE_RADIUS;
-            spouseLine.x2 = spouseLine.x2 + shiftDistance - NODE_RADIUS;
-        } 
-    } 
-}
-
-// shift given member's siblings `x` position by specified distance
-function shiftMemberSiblings(memberID, offset) {
-    let member = members.get(memberID);
-    let parentMarr = treeUtils.getMarriage(levels, member.parentMarriage);
-    if (parentMarr?.children.length > 1) {  
-        parentMarr.children.forEach((childID) => {
-            if (childID !== member.memberID) shiftMember(childID, offset);  
-        }); 
-    } 
-}
-
-// position main user level (& siblings + spouses) to connect upper and lower tree
-function positionConnectingLevel() {
-    let mainUser = members.get(1); 
-    let parentMarr = treeUtils.getMarriage(levels, mainUser.parentMarriage);  
-    let parentMidpoint = getMarriageMidpoint(parentMarr);    
-    let shiftDistance = 0;
-    if (parentMidpoint) {
-        let parentChildLine = {
-            x1: parentMidpoint.x,
-            y1: parentMidpoint.y,
-            x2: 0,
-            y2: 0
-        }; 
-        selectedTree.parentChildLines.set(parentMarr.marriageID, parentChildLine); 
-        let mainUserNode = getElementBounds(mainUser.memberID, "g");  
-        if (mainUserNode.y <= parentMidpoint.y) { 
-            shiftDistance = parentChildLine.y1 + LEVEL_HEIGHT/10; 
-            d3.select(`#lower-tree-nodes`)
-                .attr("transform", `translate(0, ${shiftDistance})`);  
-        };
-    };   
-    linkSiblings(parentMarr); 
-}
- 
-// create links betwen upper & lower level in `main` tree
-function linkMainTree(upperTreeData, lowerTreeData) { 
-    linkUpperTree(upperTreeData);  
-    positionConnectingLevel();  
-    linkLowerTree(lowerTreeData);
-    drawLinks();
-}
-
-function drawLinks() {
-    let nodeLines = [ 
-        ...selectedTree.spouseLines.values(), 
-        ...selectedTree.parentChildLines.values(), 
-        ...selectedTree.siblingLines.values(), 
-        ...[...selectedTree.topConnectorLines.values()].flat() 
-    ];     
-    selectedTree.tree
-        .selectAll(".node-link")
-        .data(nodeLines)
-        .enter()
-        .append("line")
-        .attr("class", "node-link")
-        .attr("x1", (d) => d.x1)
-        .attr("y1", (d) => d.y1)
-        .attr("x2", (d) => d.x2)
-        .attr("y2", (d) => d.y2)
-        .attr("stroke", contrastColor);  
-}
- 
-
-
-/** Fetch Element Position Functions */
-  
-// returns x,y values for specified element's translation FIX explicitly send 'svg' to use
-const getElementTransformation = (id, elementType) => { 
-    const element = selectedTree.svg.select(`#${ elementType }-${selectedTree.extension}-${ id }`); 
-    const transformAttr = element.attr("transform"); 
-    const match = transformAttr.match(/translate\(([^,]+),([^,]+)\)/);
-    return { x: parseFloat(match[1]), y: parseFloat(match[2]) };
-}
-
-// returns specified element's bounds (adjusted for translations)
-const getElementBounds = (id, elementType) => { 
-    const element = document.getElementById(`${elementType}-${selectedTree.extension}-${id}`);  
-    if (element) {
-        const elementBBox = element.getBBox(); 
-        const ctm = element.getCTM();
-        const transformedX = ctm.e + elementBBox.x * ctm.a + elementBBox.y * ctm.c;
-        const transformedY = ctm.f + elementBBox.x * ctm.b + elementBBox.y * ctm.d;
-        return {
-            x: transformedX, 
-            y: transformedY, 
-            height: elementBBox.height, 
-            width: elementBBox.width
-        } 
-    } 
-    return null;
-}
+} 
