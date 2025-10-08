@@ -248,7 +248,7 @@ function setupAvatarSelect() {
     const uploadInput = document.getElementById("upload-avatar-input");
     uploadInput.addEventListener("change", handleFileInput);   
     for (let i = 1; i <= 5; i++) { // set default selectable images
-        const path = `/assets/avatar${i}.png`; 
+        const path = `assets/avatar${i}.png`; 
         const defaultImg = createEl("img", { className: "default-avatar", src: path });    
         defaultImg.addEventListener("click", () => memberForm.selectedAvatarEl.src = path);
         uploadInput.insertAdjacentElement("beforebegin", defaultImg);
@@ -275,7 +275,7 @@ function handleFileInput() {
 function closeMemberForm() {  
     document.getElementById("file-error-msg").classList.add("hidden");
     memberForm.nameInputEl.value = ""; 
-    memberForm.selectedAvatarEl.src = "/assets/avatar1.png";  
+    memberForm.selectedAvatarEl.src = "assets/avatar1.png";  
     document.getElementById("member-form").reset();
     exitSelectMemberMode(); 
     document.getElementById("relation-selector").classList.remove("hidden");

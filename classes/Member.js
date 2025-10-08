@@ -8,7 +8,7 @@ export class Member {
         marriage = 0, 
         isAddOnSpouse = false, 
         name, 
-        image = "/assets/avatar1.png" 
+        image = "assets/avatar1.png" 
     } = {}) {
         this.memberID = memberID;
         this.level = level;  

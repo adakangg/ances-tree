@@ -268,7 +268,7 @@ function createNodes(treeData, nodesContainer, className, handleMemberClick) {
         .style("display", d => d.data.memberID === 0 ? "none" : "default"); // hide pseudo root
 
     nodes.each(function (d) { // add member's picture + name 
-        const usesDefaultImg = typeof d.data.image === "string" && d.data.image.startsWith("/assets/");
+        const usesDefaultImg = typeof d.data.image === "string" && d.data.image.startsWith("assets/");
         d3.select(this)
             .append("circle")
             .attr("id", `circle-${selectedTree.extension}-${d.data.memberID}`)
