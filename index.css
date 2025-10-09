@@ -24,7 +24,7 @@ body {
     background-color: var(--background);
     color: var(--foreground);
     font-family: 'Poppins', sans-serif; 
-    padding: 1rem 2rem 2rem 2rem;
+    padding: 1rem 2rem 0rem 2rem;
     display: flex;
     flex-direction: column;
 } 
@@ -46,6 +46,14 @@ button span {
 
 button:hover {
     cursor: pointer;
+} 
+
+a {
+    text-decoration: none;
+}
+
+a :hover {
+    text-decoration: underline;
 }
 
 .flex-row {
@@ -373,6 +381,15 @@ input[type="file"] {
     outline: 1px solid var(--foreground);
     border-radius: 2px;
 } 
+
+
+#footer { 
+    justify-content: center;
+    gap: 0.3rem !important;
+    padding: 0.6rem 0; 
+    font-size: 0.8rem; 
+    color: var(--muted-foreground);
+}
  
 
 /* Snackbar styles */ 
