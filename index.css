@@ -52,7 +52,7 @@ a {
     text-decoration: none;
 }
 
-a :hover {
+a:hover {
     text-decoration: underline;
 }
 
@@ -385,11 +385,11 @@ input[type="file"] {
 
 #footer { 
     justify-content: center;
-    gap: 0.3rem !important;
-    padding: 0.6rem 0; 
+    gap: 0.4rem !important;
+    padding: 0.7rem 0; 
     font-size: 0.8rem; 
     color: var(--muted-foreground);
-}
+} 
  
 
 /* Snackbar styles */ 
